@@ -360,6 +360,18 @@ class UnprotoScreen(urwid.WidgetWrap):
             self._pile, title="Unproto", title_align='center'), 'window_norm'))
         urwid.connect_signal(app, 'server_started', self._update_info)
 
+    def get_cursor_coords(self, size):
+        # As in ConnectionPanel.get_cursor_coords, the entry widget's
+        # position can't be found via the normal focus-based lookup. It
+        # spans the interior, minus the 1-cell LineBox border on every
+        # side, and always occupies the interior's last row.
+        maxcol, maxrow = size
+        coords = self._entry.get_cursor_coords((maxcol - 2,))
+        if coords is None:
+            return None
+        x, _ = coords
+        return x + 1, maxrow - 2
+
     def _send(self, widget, text):
         if not app.server:
             self._mon.add_line(
@@ -485,6 +497,20 @@ class ConnectionPanel(urwid.WidgetWrap):
     @property
     def edit_widget(self):
         return self._entry
+
+    def get_cursor_coords(self, size):
+        # The entry widget is deliberately never given the pile's actual
+        # focus - see keypress() in ConnectionsScreen, which forwards
+        # keystrokes to it regardless of which panel is highlighted - so its
+        # cursor position can't be found by the normal focus-based lookup.
+        # It always occupies the full width of the last row, no matter how
+        # much space the list above it ends up with.
+        maxcol, maxrow = size
+        coords = self._entry.get_cursor_coords((maxcol,))
+        if coords is None:
+            return None
+        x, _ = coords
+        return x, maxrow - 1
 
     @property
     def connected(self):
@@ -795,6 +821,20 @@ class ConnectionWindow(urwid.WidgetWrap):
     def current_edit_widget(self):
         return self._pile.contents[1][0].edit_widget
 
+    def get_cursor_coords(self, size):
+        # As in ConnectionPanel.get_cursor_coords, the current panel's
+        # cursor position can't be found via the normal focus-based lookup.
+        # The interior is inset by the LineBox border on every side, and the
+        # panel itself is preceded by the 1-row tab bar (see
+        # current_edit_widget/keypress above).
+        maxcol, maxrow = size
+        panel = self._pile.contents[1][0]
+        coords = panel.get_cursor_coords((maxcol - 2, maxrow - 3))
+        if coords is None:
+            return None
+        x, y = coords
+        return x + 1, y + 2
+
     def _server_stopping(self, server):
         if not any([panel.connected for panel in self._panels]):
             return
@@ -895,10 +935,50 @@ class ConnectionsScreen(urwid.WidgetWrap):
                 key = edit.keypress((size[0] - 2, ), key)
         return key
 
+    def get_cursor_coords(self, size):
+        # The connections window always gets the cursor - the monitor
+        # window never has an entry widget of its own - but its actual
+        # height depends on the weighted split between the two, which only
+        # the pile itself knows how to work out.
+        _, _, size_args = self._pile.get_rows_sizes(size, focus=True)
+        return self._connections_window.get_cursor_coords(size_args[0])
+
 
 # =============================================================================
 # Application
 # =============================================================================
+
+class RootFrame(urwid.Frame):
+    """
+    Frame subclass that keeps the terminal cursor pinned to the current
+    line entry widget's position, regardless of which panel is actually
+    focused.
+
+    Urwid only ever shows the cursor at the position of the widget holding
+    real focus, but paracon's line entry widgets are deliberately never
+    given real focus - see the various keypress() methods that forward
+    keystrokes to them directly - so the built-in behavior leaves the
+    cursor either hidden or, worse, showing wherever the real focus
+    happens to be (e.g. the menu bar). Since keystrokes always end up in
+    the entry widget no matter what is focused, the cursor should too.
+    """
+    def get_cursor_coords(self, size):
+        maxcol, maxrow = size
+        (hrows, frows), _ = self.frame_top_bottom(size, True)
+        coords = self.body.get_cursor_coords((maxcol, maxrow - hrows - frows))
+        if coords is None:
+            return None
+        x, y = coords
+        return x, y + hrows
+
+    def render(self, size, focus=False):
+        canvas = super().render(size, focus)
+        coords = self.get_cursor_coords(size)
+        if coords is not None:
+            canvas = urwid.CompositeCanvas(canvas)
+            canvas.set_cursor(coords)
+        return canvas
+
 
 class MonitorLogHandler(logging.Handler):
     def __init__(self, level=logging.NOTSET):
@@ -998,7 +1078,7 @@ class Application(metaclass=urwid.MetaSignals):
         self._monitor_panel = MonitorPanel()
         self._connections_screen = ConnectionsScreen(self._monitor_panel)
         self._unproto_screen = UnprotoScreen(self._monitor_panel)
-        self._frame = urwid.Frame(
+        self._frame = RootFrame(
             self._connections_screen, header=self._topbar)
         return self._frame
 
