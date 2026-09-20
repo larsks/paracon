@@ -334,18 +334,23 @@ class Menu(urwid.WidgetWrap):
 
 class MenuBar(urwid.WidgetWrap):
     """
-    A single-line widget containing a Menu on the left and an optional status
-    Text item on the right.
+    A single-line widget containing a Menu on the left, an optional status
+    Text item to its right, and a scroll position indicator on the far
+    right.
 
     Palette entries used:
         menu_text  -  the status bar text
     """
+    SCROLL_WIDTH = 5
+
     def __init__(self, menu_items, status=""):
         self._menu = Menu(menu_items)
         self._status = urwid.Text(status, 'right')
+        self._scroll = urwid.Text('BOT', 'right')
         widget = urwid.AttrMap(urwid.Padding(urwid.Columns([
             urwid.Filler(self._menu),
-            urwid.Filler(self._status)
+            urwid.Filler(self._status),
+            (self.SCROLL_WIDTH, urwid.Filler(self._scroll))
         ], box_columns=[0, 1]), left=1, right=1), 'menu_text')
         super().__init__(widget)
 
@@ -360,6 +365,14 @@ class MenuBar(urwid.WidgetWrap):
     @status.setter
     def status(self, text):
         self._status.set_text(text)
+
+    @property
+    def scroll_status(self):
+        return self._scroll.text
+
+    @scroll_status.setter
+    def scroll_status(self, text):
+        self._scroll.set_text(text)
 
     def keypress(self, size, key):
         return self._menu.keypress(size, key)

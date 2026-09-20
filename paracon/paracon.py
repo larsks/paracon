@@ -133,6 +133,28 @@ class SizeListBox(urwid.ListBox):
         self._size = size
         return super().render(size, focus)
 
+    def lines_below(self):
+        """
+        Return the number of rows in the body that lie below the bottom of
+        the currently visible viewport, or 0 if the last row is visible
+        (i.e. the view is scrolled all the way to the bottom).
+        """
+        if self._size is None:
+            return 0
+        middle, top, bottom = self.calculate_visible(self._size)
+        if middle is None:
+            return 0
+        _, _, focus_pos, _, _ = middle
+        trim_bottom, below = bottom
+        last_pos = below[-1][1] if below else focus_pos
+        maxcol = self._size[0]
+        lines = 0
+        widget, pos = self.body.get_next(last_pos)
+        while widget is not None:
+            lines += widget.rows((maxcol,))
+            widget, pos = self.body.get_next(pos)
+        return lines
+
 
 class Ports:
     """
@@ -571,6 +593,7 @@ class ConnectionPanel(urwid.WidgetWrap):
             self._log.write_log(widget)
             self._partial_widget = None
             self._follow_bottom()
+            self._update_scroll_indicator()
         else:
             self.add_line(('connection_outbound', text))
 
@@ -596,7 +619,18 @@ class ConnectionPanel(urwid.WidgetWrap):
 
     def keypress(self, size, key):
         key = self._menubar.menu.keypress(size, key)
-        return super().keypress(size, key)
+        key = super().keypress(size, key)
+        self._update_scroll_indicator()
+        return key
+
+    def mouse_event(self, size, event, button, col, row, focus):
+        result = self._pile.mouse_event(size, event, button, col, row, focus)
+        self._update_scroll_indicator()
+        return result
+
+    def _update_scroll_indicator(self):
+        lines = self._list.lines_below()
+        self._menubar.scroll_status = 'BOT' if lines == 0 else str(lines)
 
     def _update_from_queue(self, obj):
         queue = self._connection.event_queue
@@ -698,6 +732,7 @@ class ConnectionPanel(urwid.WidgetWrap):
         # first appeared (i.e. the user has not scrolled up to view
         # earlier entries)
         self._follow_bottom()
+        self._update_scroll_indicator()
 
     def add_line(self, line):
         # Note that a pending unterminated incoming line (self._partial_
@@ -716,6 +751,7 @@ class ConnectionPanel(urwid.WidgetWrap):
         # user has not scrolled up to view earlier entries)
         if 'bottom' in ends_visible:
             self._list.set_focus(len(self._log) - 1, 'above')
+        self._update_scroll_indicator()
 
     def _set_info(self, data=None):
         if self._connection:
