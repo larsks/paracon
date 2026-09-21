@@ -1,4 +1,4 @@
 pyham_ax25
-pyham_pe
+pyham_pe @ git+https://github.com/larsks/pyham_pe.git@fix/abort-connection
 urwid
 
