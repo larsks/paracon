@@ -149,6 +149,19 @@ tab numbers (using Alt-<tab-number>).
 When you are finished with a tab, you can either leave it open for future
 reuse, or close it (using Alt-\- or Alt-r) to remove the clutter.
 
+If the remote station does not respond to your connection request, the attempt
+can take many minutes to time out. You don't have to wait: the 'Disconnect'
+command is available as soon as Paracon starts connecting, and using it will
+abandon the attempt and make 'Connect' available again straight away.
+
+Paracon asks your AGWPE server to stop the attempt, but doesn't wait for the
+server to confirm. Some servers keep sending disconnect requests to the remote
+station for several minutes before they give up, and you may see those in the
+Monitor panel. Some of them also refuse a new connection to the same station
+until they have finished; if so, the new attempt will end immediately with
+'Disconnected', and you can try again a little later. Connecting to a
+different station is not affected.
+
 Unproto
 -------
 

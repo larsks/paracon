@@ -125,6 +125,15 @@ class ServerError(Exception):
         self.root = root
 
 
+class ConnectionExistsError(Exception):
+    """
+    Raised when opening a connection between two stations that already have
+    one, such as when another tab is already connected to that station. A
+    connection that has been aborted does not count.
+    """
+    pass
+
+
 class Server:
     """
     The server used by the Paracon application. This is a thin layer on top
@@ -186,7 +195,13 @@ class Server:
         return self._engine.is_callsign_registered(callsign)
 
     def open_connection(self, port, call_from, call_to, via):
-        conn = self._engine.open_connection(port, call_from, call_to, via)
+        try:
+            conn = self._engine.open_connection(
+                port, call_from, call_to, via)
+        except ValueError as e:
+            # The callsign has already been registered by this point, so
+            # this is the engine refusing a duplicate connection.
+            raise ConnectionExistsError() from e
         return conn
 
     def send_unproto(self, port, call_from, call_to, data, via):

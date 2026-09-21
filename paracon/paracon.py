@@ -556,26 +556,53 @@ class ConnectionPanel(urwid.WidgetWrap):
                 'connection_error',
                 'Your connection may be configured as readonly.'))
             return
-        self._menubar.menu.enable(self.MenuCommand.CONNECT, False)
         port = app.ports.port_for_index(info.port[0])
         vias = info.connect_via.split() if info.connect_via else None
-        conn = app.server.open_connection(
-            port, info.connect_as, info.connect_to, vias)
+        try:
+            conn = app.server.open_connection(
+                port, info.connect_as, info.connect_to, vias)
+        except pserver.ConnectionExistsError:
+            self.add_line((
+                'connection_error',
+                'A connection to {} already exists, or is still being '
+                'closed.'.format(info.connect_to)))
+            return
+        self._menubar.menu.enable(self.MenuCommand.CONNECT, False)
         self._connection = conn
+        # Forget any session left over from before, so that we can tell
+        # whether this attempt ever gets connected.
+        self._connection_start = None
         self._periodic_key = app.start_periodic(1.0, self._update_from_queue)
+        # An attempt to reach a station that isn't responding can take many
+        # minutes to time out, so the user must be able to abort it.
+        self._menubar.menu.enable(self.MenuCommand.DISCONNECT, True)
         self.add_line('Connecting to {} ...'.format(info.connect_to))
         # Connection process will complete in _update_from_queue()
 
     def _disconnect(self):
         if self._connection:
+            # With no start time, the connection was never established, so
+            # this is the user giving up on the attempt.
+            if self._connection_start is None:
+                # Don't wait for the server to confirm. Some TNCs deal with
+                # this by running the full release procedure, repeating DISC
+                # until the remote station answers or retries run out, which
+                # for a station that isn't responding - the usual reason for
+                # cancelling - takes minutes. They may then never report it
+                # at all. The server carries on with that by itself.
+                self._connection.abort()
+                self._reset()
+                self.add_line('Connection attempt cancelled')
+                return
             self._connection.close()
         self._menubar.menu.enable(self.MenuCommand.DISCONNECT, False)
         # Disconnection process will complete in _update_from_queue()
 
     def _reset(self):
-        # Reset is similar to disconnect, except that the server disconnected
-        # abruptly, so we need to reset without talking to the server. The
-        # user has already been notified.
+        # Reset is similar to disconnect, except that we don't wait for the
+        # server to confirm. It is used when the server disconnected
+        # abruptly, and when a connection attempt is abandoned. The user has
+        # already been notified.
         self._panel_changed_callback(self, None)
         if self._connection:
             self._connection = None
@@ -659,6 +686,9 @@ class ConnectionPanel(urwid.WidgetWrap):
         self._menubar.scroll_status = 'BOT' if lines == 0 else str(lines)
 
     def _update_from_queue(self, obj):
+        if not self._connection:
+            # Abandoned while waiting, so there's nothing left to poll
+            return False
         queue = self._connection.event_queue
         result = True
         while not queue.empty():
